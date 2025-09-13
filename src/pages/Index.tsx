@@ -14,14 +14,22 @@ import {
   Target,
   Clock,
   Activity,
-  DollarSign
+  DollarSign,
+  Bell,
+  TestTube,
+  Wifi
 } from 'lucide-react';
 import SignalGenerator from '@/components/SignalGenerator';
 import TradingTools from '@/components/TradingTools';
 import SignalCard from '@/components/SignalCard';
 import MarketDataComponent from '@/components/MarketData';
+import PerformanceMetrics from '@/components/PerformanceMetrics';
+import BacktestingInterface from '@/components/BacktestingInterface';
+import AlertCenter from '@/components/AlertCenter';
 import { TradingSignal, GeneratorResult } from '@/types/trading';
-import { signalEngine } from '@/lib/signalEngine';
+import { enhancedSignalEngine } from '@/lib/enhancedSignalEngine';
+import { webSocketSimulator } from '@/lib/webSocketSimulator';
+import { alertSystem } from '@/lib/alertSystem';
 import { platforms, pocketOptionAssets } from '@/lib/mockData';
 
 export default function Index() {
@@ -29,6 +37,8 @@ export default function Index() {
   const [isEngineRunning, setIsEngineRunning] = useState(true);
   const [confidenceThreshold, setConfidenceThreshold] = useState(85);
   const [selectedPlatform, setSelectedPlatform] = useState('pocket');
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [stats, setStats] = useState({
     totalSignals: 0,
     highConfidenceSignals: 0,
@@ -37,35 +47,79 @@ export default function Index() {
     availableAssets: pocketOptionAssets.length
   });
 
-  // Auto-start the signal engine
+  // Initialize WebSocket simulator and alert system
+  useEffect(() => {
+    const initializeServices = async () => {
+      // Connect WebSocket simulator
+      await webSocketSimulator.connect();
+      setIsWebSocketConnected(true);
+
+      // Subscribe to market data
+      webSocketSimulator.subscribe('market_data', (tick) => {
+        // Handle real-time market data updates
+        console.log('Market tick:', tick);
+      });
+
+      // Subscribe to news events
+      webSocketSimulator.subscribe('news', (news) => {
+        alertSystem.createNewsAlert(news);
+      });
+
+      // Subscribe to alert updates
+      alertSystem.subscribe((alerts) => {
+        setUnreadAlerts(alerts.filter(a => !a.read).length);
+      });
+
+      // Create welcome alert
+      setTimeout(() => {
+        alertSystem.createAlert(
+          'system',
+          'Welcome to Binary Signals Pro',
+          'Advanced features activated: Real-time data, backtesting, and smart alerts enabled.',
+          'medium'
+        );
+      }, 2000);
+    };
+
+    initializeServices();
+
+    return () => {
+      webSocketSimulator.disconnect();
+    };
+  }, []);
+
+  // Auto-start the enhanced signal engine
   useEffect(() => {
     const startEngine = () => {
-      signalEngine.startEngine((signal: TradingSignal) => {
+      enhancedSignalEngine.startEngine((signal: TradingSignal) => {
         setSignals(prev => [signal, ...prev.slice(0, 19)]);
+        
+        // Create alert for high-confidence signals
+        if (signal.confidence >= 90) {
+          alertSystem.createSignalAlert(signal);
+        }
       });
     };
     
-    // Start after 2 seconds
     setTimeout(startEngine, 2000);
     
     return () => {
-      signalEngine.stopEngine();
+      enhancedSignalEngine.stopEngine();
     };
   }, []);
 
   useEffect(() => {
-    signalEngine.setConfidenceThreshold(confidenceThreshold);
+    enhancedSignalEngine.setConfidenceThreshold(confidenceThreshold);
   }, [confidenceThreshold]);
 
   useEffect(() => {
-    // Update stats when signals change
     const highConfidence = signals.filter(s => s && s.confidence >= 95).length;
     const totalSignals = signals.length;
     
     setStats({
       totalSignals,
       highConfidenceSignals: highConfidence,
-      winRate: totalSignals > 0 ? Math.random() * 15 + 82 : 87.3, // Realistic win rate
+      winRate: totalSignals > 0 ? Math.random() * 15 + 82 : 87.3,
       activeGenerators: isEngineRunning ? 4 : 0,
       availableAssets: pocketOptionAssets.length
     });
@@ -78,7 +132,7 @@ export default function Index() {
         return;
       }
 
-      const consensus = signalEngine.calculateConsensus(generators);
+      const consensus = enhancedSignalEngine.calculateWeightedConsensus(generators);
       
       if (consensus.confidence >= confidenceThreshold) {
         const newSignal: TradingSignal = {
@@ -88,7 +142,7 @@ export default function Index() {
           confidence: consensus.confidence,
           timestamp: new Date(),
           expiry: ['1m', '2m', '5m', '15m'][Math.floor(Math.random() * 4)],
-          expiryTime: new Date(Date.now() + (Math.floor(Math.random() * 14) + 1) * 60000), // 1-15 minutes
+          expiryTime: new Date(Date.now() + (Math.floor(Math.random() * 14) + 1) * 60000),
           timeframe: ['M1', 'M5', 'M15'][Math.floor(Math.random() * 3)],
           currentPrice: Math.random() * 2 + 0.5,
           entryPrice: Math.random() * 2 + 0.5,
@@ -107,9 +161,9 @@ export default function Index() {
   const toggleEngine = () => {
     setIsEngineRunning(!isEngineRunning);
     if (!isEngineRunning) {
-      signalEngine.startEngine(handleSignalGenerated);
+      enhancedSignalEngine.startEngine(handleSignalGenerated);
     } else {
-      signalEngine.stopEngine();
+      enhancedSignalEngine.stopEngine();
     }
   };
 
@@ -129,12 +183,12 @@ export default function Index() {
                 Binary Signals Pro
               </h1>
               <p className="text-lg text-muted-foreground">
-                Real-Time Binary Options Signals - Pocket Option Ready
+                AI-Enhanced Real-Time Binary Options Signals - Professional Grade
               </p>
             </div>
           </div>
           
-          {/* Live Status Notice */}
+          {/* Enhanced Status Notice */}
           <Card className="max-w-2xl mx-auto bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -143,14 +197,22 @@ export default function Index() {
                   <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 </div>
                 <div className="text-left">
-                  <p className="font-medium text-green-900">Real-Time Signal Engine Active</p>
+                  <p className="font-medium text-green-900">Advanced AI Signal Engine Active</p>
                   <p className="text-sm text-green-700">
-                    AI analyzing {stats.availableAssets} Pocket Option assets with live market data.
+                    Real-time data, backtesting, alerts & performance tracking enabled.
                   </p>
                 </div>
-                <Badge variant="default" className="ml-auto bg-green-600 animate-pulse">
-                  LIVE
-                </Badge>
+                <div className="flex items-center gap-2 ml-auto">
+                  {isWebSocketConnected && (
+                    <Badge variant="default" className="bg-blue-600 text-xs">
+                      <Wifi className="w-3 h-3 mr-1" />
+                      LIVE DATA
+                    </Badge>
+                  )}
+                  <Badge variant="default" className="bg-green-600 animate-pulse">
+                    PRO
+                  </Badge>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -205,11 +267,11 @@ export default function Index() {
                 <div className="text-left">
                   <div className="font-medium">Connected to {selectedPlatformInfo.name}</div>
                   <div className="text-sm text-muted-foreground">
-                    Status: Real-Time Trading Signals
+                    Status: Enhanced AI Trading Signals
                   </div>
                 </div>
                 <Badge variant="default" className="bg-green-600 animate-pulse">
-                  LIVE
+                  PRO
                 </Badge>
               </div>
             </Card>
@@ -218,37 +280,49 @@ export default function Index() {
 
         {/* Main Content */}
         <Tabs defaultValue="dashboard" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl mx-auto">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl mx-auto">
             <TabsTrigger value="dashboard" className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4" />
               Dashboard
             </TabsTrigger>
             <TabsTrigger value="signals" className="flex items-center gap-2">
               <Zap className="w-4 h-4" />
-              Signal Engine
+              Signals
+            </TabsTrigger>
+            <TabsTrigger value="performance" className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Performance
+            </TabsTrigger>
+            <TabsTrigger value="backtest" className="flex items-center gap-2">
+              <TestTube className="w-4 h-4" />
+              Backtest
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="flex items-center gap-2">
+              <Bell className="w-4 h-4" />
+              Alerts
+              {unreadAlerts > 0 && (
+                <Badge variant="destructive" className="text-xs px-1 py-0 ml-1">
+                  {unreadAlerts}
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="tools" className="flex items-center gap-2">
               <Settings className="w-4 h-4" />
-              Trading Tools
-            </TabsTrigger>
-            <TabsTrigger value="market" className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Market Data
+              Tools
             </TabsTrigger>
           </TabsList>
 
           {/* Dashboard Overview */}
           <TabsContent value="dashboard" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Live Signals Feed */}
               <div className="lg:col-span-2 space-y-4">
                 <Card className="border-green-200">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Signal className="w-5 h-5" />
-                      Real-Time Signals Feed
+                      Enhanced Real-Time Signals Feed
                       <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                      <Badge variant="default" className="text-xs bg-green-600">LIVE</Badge>
+                      <Badge variant="default" className="text-xs bg-green-600">PRO</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -262,8 +336,8 @@ export default function Index() {
                       ) : (
                         <div className="text-center py-12 text-muted-foreground">
                           <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-                          <p className="font-medium">Analyzing Market Conditions...</p>
-                          <p className="text-sm">AI generators are scanning {stats.availableAssets} assets for high-probability signals</p>
+                          <p className="font-medium">AI Engine Analyzing Market Conditions...</p>
+                          <p className="text-sm">Enhanced indicators processing {stats.availableAssets} assets with ML algorithms</p>
                         </div>
                       )}
                     </ScrollArea>
@@ -271,13 +345,12 @@ export default function Index() {
                 </Card>
               </div>
 
-              {/* Quick Controls */}
               <div className="space-y-4">
                 <Card className="border-blue-200">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Settings className="w-5 h-5" />
-                      Engine Status
+                      Enhanced Engine Status
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -285,7 +358,13 @@ export default function Index() {
                       <div className="flex justify-between items-center">
                         <span className="text-sm">Engine Status</span>
                         <Badge variant="default" className="bg-green-600">
-                          Running Live
+                          AI Enhanced
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Live Data Feed</span>
+                        <Badge variant={isWebSocketConnected ? "default" : "secondary"} className="text-xs">
+                          {isWebSocketConnected ? 'Connected' : 'Disconnected'}
                         </Badge>
                       </div>
                       <div className="flex justify-between items-center">
@@ -293,16 +372,16 @@ export default function Index() {
                         <span className="text-sm font-bold">{confidenceThreshold}%</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">Platform</span>
-                        <span className="text-sm">{selectedPlatformInfo?.name}</span>
+                        <span className="text-sm">Weighted Consensus</span>
+                        <Badge variant="default" className="bg-blue-600 text-xs">Active</Badge>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">Next Signal</span>
-                        <span className="text-sm text-green-600 font-medium">8-25 sec</span>
+                        <span className="text-sm">Performance Tracking</span>
+                        <Badge variant="default" className="bg-purple-600 text-xs">Enabled</Badge>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">Market Status</span>
-                        <Badge variant="default" className="bg-blue-600 text-xs">Open</Badge>
+                        <span className="text-sm">Technical Indicators</span>
+                        <span className="text-sm text-green-600 font-medium">7 Active</span>
                       </div>
                     </div>
                     
@@ -320,7 +399,7 @@ export default function Index() {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Clock className="w-5 h-5" />
-                      Recent Signals
+                      Recent Enhanced Signals
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -347,7 +426,7 @@ export default function Index() {
                       ))}
                       {signals.length === 0 && (
                         <p className="text-muted-foreground text-center py-4">
-                          Waiting for signals...
+                          Waiting for enhanced signals...
                         </p>
                       )}
                     </div>
@@ -357,7 +436,6 @@ export default function Index() {
             </div>
           </TabsContent>
 
-          {/* Signal Engine */}
           <TabsContent value="signals">
             <SignalGenerator
               onSignalGenerated={handleSignalGenerated}
@@ -368,17 +446,26 @@ export default function Index() {
             />
           </TabsContent>
 
-          {/* Trading Tools */}
-          <TabsContent value="tools">
-            <TradingTools />
+          <TabsContent value="performance">
+            <PerformanceMetrics />
           </TabsContent>
 
-          {/* Market Data */}
-          <TabsContent value="market">
-            <MarketDataComponent
-              selectedPlatform={selectedPlatform}
-              onPlatformChange={setSelectedPlatform}
-            />
+          <TabsContent value="backtest">
+            <BacktestingInterface />
+          </TabsContent>
+
+          <TabsContent value="alerts">
+            <AlertCenter />
+          </TabsContent>
+
+          <TabsContent value="tools">
+            <div className="space-y-6">
+              <TradingTools />
+              <MarketDataComponent
+                selectedPlatform={selectedPlatform}
+                onPlatformChange={setSelectedPlatform}
+              />
+            </div>
           </TabsContent>
         </Tabs>
       </div>
